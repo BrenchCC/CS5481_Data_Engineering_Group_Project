@@ -1,0 +1,10 @@
+jupyter
+pandas
+datasets
+scikit-learn
+scipy
+lightgbm
+matplotlib
+seaborn
+numpy==1.26.4
+
