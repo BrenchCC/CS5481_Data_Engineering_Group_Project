@@ -23,9 +23,7 @@ def get_device():
         return torch.device("cuda")
     return torch.device("cpu")
 
-# -------------------------
 # Dataset Loading
-# -------------------------
 class InteractionDataset(Dataset):
     def __init__(self, user_idxs: np.ndarray, item_idxs: np.ndarray, labels: np.ndarray):
         self.user_idxs = user_idxs.astype(np.int64)
@@ -38,9 +36,7 @@ class InteractionDataset(Dataset):
     def __getitem__(self, idx):
         return self.user_idxs[idx], self.item_idxs[idx], self.labels[idx]
 
-# -------------------------
-# Matrix Factorization Model
-# -------------------------
+# Matrix Factorization Model Class
 class MFModel(nn.Module):
     def __init__(self, n_users: int, n_items: int, emb_dim: int, user_bias=True, item_bias=True):
         super().__init__()
@@ -53,7 +49,7 @@ class MFModel(nn.Module):
         if item_bias:
             self.item_b = nn.Embedding(n_items, 1)
 
-        # initialization
+        # initialization model
         nn.init.normal_(self.user_emb.weight, std=0.01)
         nn.init.normal_(self.item_emb.weight, std=0.01)
         if user_bias:
@@ -71,9 +67,8 @@ class MFModel(nn.Module):
             score = score + self.item_b(item_idx)
         return score.squeeze(1)  # logits
 
-# -------------------------
-# Main wrapper class
-# -------------------------
+
+# Collaborative Filtering with Matrix Factorization Class Module
 class CollaborativeFilteringMF:
     def __init__(
         self,
@@ -116,7 +111,7 @@ class CollaborativeFilteringMF:
         torch.manual_seed(self.seed)
         np.random.seed(self.seed)
 
-        # placeholders set during data preparation
+        # prepare data placeholders set during data preparation
         self.user2idx: Dict[Any, int] = {}
         self.item2idx: Dict[Any, int] = {}
         self.idx2user: Optional[np.ndarray] = None
@@ -128,9 +123,7 @@ class CollaborativeFilteringMF:
         # history for plotting
         self.history = {"precision": [], "recall": [], "f1": [], "auc": []}
 
-    # -------------------------
     # Data loading & mapping
-    # -------------------------
     def _prepare_data(self):
         logger.info("Loading train/test CSVs...")
         train_df = pd.read_csv(self.train_path)
@@ -140,7 +133,6 @@ class CollaborativeFilteringMF:
         logger.info("Factorizing user and item ids to contiguous indices...")
         users_all, user_idx = pd.factorize(pd.concat([train_df["msno"], test_df["msno"]], axis=0), sort=True)
         items_all, item_idx = pd.factorize(pd.concat([train_df["song_id"], test_df["song_id"]], axis=0), sort=True)
-        # pandas.factorize returns codes for each entry; but above approach returned arrays of values -> we'll instead get unique lists:
 
         users = pd.concat([train_df["msno"], test_df["msno"]], axis=0).unique()
         items = pd.concat([train_df["song_id"], test_df["song_id"]], axis=0).unique()
@@ -163,7 +155,7 @@ class CollaborativeFilteringMF:
         # free memory
         del train_df, test_df
 
-        # datasets
+        # create dataset and data loader
         train_ds = InteractionDataset(train_u, train_i, train_y)
         test_ds = InteractionDataset(test_u, test_i, test_y)
         train_loader = DataLoader(train_ds, batch_size=self.batch_size, shuffle=True, num_workers=self.num_workers, pin_memory=True)
@@ -171,9 +163,7 @@ class CollaborativeFilteringMF:
 
         return train_loader, test_loader, len(self.idx2user), len(self.idx2item)
 
-    # -------------------------
     # Train step
-    # -------------------------
     def fit(self):
         train_loader, test_loader, n_users, n_items = self._prepare_data()
 
@@ -217,7 +207,7 @@ class CollaborativeFilteringMF:
             self.save_model(ckpt_path)
             logger.info(f"Saved checkpoint: {ckpt_path}")
 
-        # after training, save final model and user-item similarity matrix
+        # asave final model and user-item similarity matrix
         final_ckpt = os.path.join(self.model_save_dir, "mf_final.pt")
         self.save_model(final_ckpt)
         logger.info(f"Saved final model: {final_ckpt}")
@@ -227,9 +217,7 @@ class CollaborativeFilteringMF:
         self.save_user_item_matrix(topk=self.topk_sim)
         logger.info("All done.")
 
-    # -------------------------
-    # Evaluate (batch-wise to limit memory)
-    # -------------------------
+    # Evaluation step
     def evaluate(self, loader: DataLoader) -> Tuple[float, float, float, float]:
         self.model.eval()
         preds = []
@@ -255,9 +243,7 @@ class CollaborativeFilteringMF:
 
         return precision, recall, f1, auc
 
-    # -------------------------
-    # Save / Load model
-    # -------------------------
+    # Saving / Loading model func
     def save_model(self, path: str):
         state = {
             "model_state": self.model.state_dict(),
@@ -284,9 +270,7 @@ class CollaborativeFilteringMF:
         self.model.load_state_dict(state["model_state"])
         logger.info(f"Loaded model from {path}")
 
-    # -------------------------
     # Save user-item similarity matrix
-    # -------------------------
     def save_user_item_matrix(self, topk: int = 100):
         """
         Compute user-item scores via dot(user_emb, item_emb) and save a sparse matrix keeping top-k per user.
@@ -307,12 +291,13 @@ class CollaborativeFilteringMF:
         cols = []
         data = []
 
-        chunk_size = 2048  # adjust according to memory; modest default to avoid peaks
+        chunk_size = 2048  
         for start in range(0, n_users, chunk_size):
             end = min(n_users, start + chunk_size)
-            u_chunk = user_emb[start:end]  # (chunk, emb)
+            u_chunk = user_emb[start:end] 
             # compute scores chunk x items -> matrix multiplication
             scores = u_chunk.dot(item_emb.T)  # shape (chunk, n_items)
+
             # for each user in chunk, select topk indices
             for idx_in_chunk, sc in enumerate(scores):
                 if topk >= n_items:
@@ -340,15 +325,12 @@ class CollaborativeFilteringMF:
         np.savez_compressed(emb_path, user_emb=user_emb, item_emb=item_emb)
         logger.info(f"Saved embeddings to {emb_path}")
 
-        # === NEW: save as .npy for easy numpy loading ===
         np.save(os.path.join(self.matrix_save_dir, "user_factors.npy"), user_emb)
         np.save(os.path.join(self.matrix_save_dir, "item_factors.npy"), item_emb)
         logger.info("Saved user_factors.npy and item_factors.npy")
 
 
-    # -------------------------
     # Plot metrics
-    # -------------------------
     def plot_metrics(self):
         epochs = np.arange(1, len(self.history["precision"]) + 1)
         plt.figure()
@@ -365,9 +347,7 @@ class CollaborativeFilteringMF:
         plt.close()
         logger.info(f"Saved metric plot to {file_path}")
 
-    # -------------------------
     # Utility: predict for given user-item pairs in batches
-    # -------------------------
     def predict_pairs(self, user_array: np.ndarray, item_array: np.ndarray, batch_size: int = 65536):
         if self.model is None:
             raise RuntimeError("Model not trained or loaded.")
@@ -383,16 +363,16 @@ class CollaborativeFilteringMF:
                 preds.append(torch.sigmoid(logits).detach().cpu().numpy())
         return np.concatenate(preds, axis=0)
 
-# -------------------------
 # If run as script: example usage and reproduce instructions
-# -------------------------
 if __name__ == "__main__":
 
-    ch = logging.StreamHandler()
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    ch.setFormatter(formatter)
-    logger.addHandler(ch)
-    logger.setLevel(logging.INFO)
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.StreamHandler()
+        ]
+    )
 
     # Paths as per your request
     train_csv = "data/processed_data/train_processed_data_mf.csv"
@@ -402,17 +382,17 @@ if __name__ == "__main__":
     matrix_dir = "model_ckpts/collaborative_filter"
 
     cf = CollaborativeFilteringMF(
-        train_path=train_csv,
-        test_path=test_csv,
-        image_save_dir=image_dir,
-        model_save_dir=model_dir,
-        matrix_save_dir=matrix_dir,
-        emb_dim=64,
-        lr=1e-3,
-        batch_size=16384,
-        epochs=5,  # first-run: keep small; adjust as needed
-        num_workers=4,
-        topk_sim=100,
+        train_path = train_csv,
+        test_path = test_csv,
+        image_save_dir = image_dir,
+        model_save_dir = model_dir,
+        matrix_save_dir = matrix_dir,
+        emb_dim = 64,
+        lr = 1e-3,
+        batch_size = 16384,
+        epochs = 5, 
+        num_workers = 4,
+        topk_sim = 100,
     )
 
     # Run training once
