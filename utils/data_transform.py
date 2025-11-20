@@ -14,7 +14,7 @@ def parse_args():
     parser.add_argument('--data_dir', type = str, default = "data/raw_data")
     parser.add_argument('--songs_data_path', type = str, default = "songs.csv")
     parser.add_argument('--members_data_path', type = str, default = "members.csv")
-    parser.add_argument('-songs_extra_info_data_path', type = str, default = "song_extra_info.csv")
+    parser.add_argument('--songs_extra_info_data_path', type = str, default = "song_extra_info.csv")
     parser.add_argument('--output_dir', type = str, default = "data/aggregated_data")
     return parser.parse_args()
 

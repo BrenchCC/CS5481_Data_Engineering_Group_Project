@@ -6,5 +6,11 @@ scipy
 lightgbm
 matplotlib
 seaborn
+optuna
+torch==2.3.1
+torchvision==0.18.1
+torchaudio==2.3.1
 numpy==1.26.4
-
+implicit
+scipy
+scikit-surprise
