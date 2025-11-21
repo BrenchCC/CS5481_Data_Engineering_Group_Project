@@ -363,9 +363,7 @@ class CollaborativeFilteringMF:
                 preds.append(torch.sigmoid(logits).detach().cpu().numpy())
         return np.concatenate(preds, axis=0)
 
-# If run as script: example usage and reproduce instructions
 if __name__ == "__main__":
-
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s',
@@ -374,7 +372,6 @@ if __name__ == "__main__":
         ]
     )
 
-    # Paths as per your request
     train_csv = "data/processed_data/train_processed_data_mf.csv"
     test_csv = "data/processed_data/test_processed_data_mf.csv"
     image_dir = "images/models/collaborative_filter"
