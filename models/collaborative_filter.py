@@ -232,8 +232,8 @@ class CollaborativeFilteringMF:
         preds = np.concatenate(preds, axis=0)
         labels = np.concatenate(labels, axis=0).astype(int)
 
-        # threshold 0.5 for precision/recall/f1
-        pred_bin = (preds >= 0.5).astype(int)
+        # threshold 0.9 for precision/recall/f1
+        pred_bin = (preds >= 0.9).astype(int)
         precision, recall, f1, _ = precision_recall_fscore_support(labels, pred_bin, average="binary", zero_division=0)
         try:
             auc = float(roc_auc_score(labels, preds))
