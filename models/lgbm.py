@@ -23,17 +23,30 @@ class LightGBMTrainer:
         self.target_col = "target"
         logging.info(f"Loaded train size: {len(train_df)}, test size: {len(test_df)}")
 
-    def train(self, params=None, num_boost_round = 3000, early_stopping_rounds = 200):
+    def train(self, params=None, num_boost_round = 1000, early_stopping_rounds = 100):
         if params is None:
+            # params = {
+            #     "objective": "binary",
+            #     "boosting": "gbdt",
+            #     "metric": "auc",
+            #     "learning_rate": 0.2,
+            #     "num_leaves": 200,
+            #     "feature_fraction": 0.9,
+            #     "bagging_fraction": 0.95,
+            #     "bagging_freq": 1,
+            #     "bagging_seed": 42,
+            #     "max_depth": -1,
+            #     "verbosity": 1,
+            # }
             params = {
                 "objective": "binary",
                 "boosting": "gbdt",
                 "metric": "auc",
-                "learning_rate": 0.05,
-                "num_leaves": 64,
-                "min_data_in_leaf": 3000,
-                "feature_fraction": 0.75,
-                "bagging_fraction": 0.75,
+                "learning_rate": 0.1,
+                "num_leaves": 128,
+                "min_data_in_leaf": 1000,
+                "feature_fraction": 0.8,
+                "bagging_fraction": 0.8,
                 "bagging_freq": 1,
                 "bagging_seed": 42,
                 "max_depth": -1,
