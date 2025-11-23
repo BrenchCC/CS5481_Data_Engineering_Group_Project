@@ -23,18 +23,25 @@ class LightGBMTrainer:
         self.target_col = "target"
         logging.info(f"Loaded train size: {len(train_df)}, test size: {len(test_df)}")
 
-    def train(self, params=None, num_boost_round=500, early_stopping_rounds=50):
+    def train(self, params=None, num_boost_round = 3000, early_stopping_rounds = 200):
         if params is None:
             params = {
                 "objective": "binary",
+                "boosting": "gbdt",
                 "metric": "auc",
-                "learning_rate": 0.1,
-                "num_leaves": 256,
-                "feature_fraction": 0.9,
-                "bagging_fraction": 0.8,
-                "bagging_freq": 5,
+                "learning_rate": 0.05,
+                "num_leaves": 64,
+                "min_data_in_leaf": 3000,
+                "feature_fraction": 0.75,
+                "bagging_fraction": 0.75,
+                "bagging_freq": 1,
+                "bagging_seed": 42,
                 "max_depth": -1,
-                "verbosity": -1
+                "lambda_l1": 0.5,
+                "lambda_l2": 2.0,
+                "min_split_gain": 0.01,
+                "max_bin": 255,
+                "verbosity": 1,
             }
 
         logging.info("Start training LightGBM model")
@@ -59,8 +66,8 @@ class LightGBMTrainer:
             valid_sets=[train_data, test_data],
             valid_names=["train", "test"],
             callbacks=[
-                early_stopping(stopping_rounds=early_stopping_rounds),
-                log_evaluation(period=50),
+                early_stopping(stopping_rounds = early_stopping_rounds),
+                log_evaluation(period = 50),
                 record_metrics
             ]
         )
@@ -139,7 +146,10 @@ if __name__ == "__main__":
     train_df = pd.read_csv("data/processed_data/train_processed_data.csv")
     test_df = pd.read_csv("data/processed_data/test_processed_data.csv")
 
-    trainer = LightGBMTrainer(model_path="model_ckpts/lightgbm", image_path="images/models/lightgbm")
+    trainer = LightGBMTrainer(
+        model_path = "model_ckpts/lightgbm",
+        image_path = "images/models/lightgbm"
+    )
     trainer.load_data(train_df, test_df)
     trainer.train()
     trainer.evaluate()

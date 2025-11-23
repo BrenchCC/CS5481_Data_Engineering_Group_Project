@@ -217,7 +217,7 @@ class CollaborativeFilteringMF:
         logger.info("All done.")
 
     # Evaluation step
-    def evaluate(self, loader: DataLoader) -> Tuple[float, float, float, float]:
+    def evaluate(self, loader: DataLoader, threshold: float = 0.5) -> Tuple[float, float, float, float]:
         self.model.eval()
         preds = []
         labels = []
@@ -232,8 +232,8 @@ class CollaborativeFilteringMF:
         preds = np.concatenate(preds, axis=0)
         labels = np.concatenate(labels, axis=0).astype(int)
 
-        # threshold 0.9 for precision/recall/f1
-        pred_bin = (preds >= 0.9).astype(int)
+        # threshold predictions and compute metrics for precision/recall/f1
+        pred_bin = (preds >= threshold).astype(int)
         precision, recall, f1, _ = precision_recall_fscore_support(labels, pred_bin, average="binary", zero_division=0)
         try:
             auc = float(roc_auc_score(labels, preds))
@@ -414,6 +414,11 @@ if __name__ == "__main__":
     )
     
     cf.load_model("model_ckpts/collaborative_filter/mf_final.pt")
+    
+    train_loader, test_loader, n_users, n_items = self._prepare_data()
+    # evaluate on test set
+    precision, recall, f1, auc = cf.evaluate(test_loader, threshold = 0.75)
+    print(f"Test metrics - precision: {precision:.6f}, recall: {recall:.6f}, f1: {f1:.6f}, auc: {auc:.6f}")
     
     test_df = pd.read_csv("data/processed_data/test_processed_data_mf.csv")
     u = test_df["msno"].map(cf.user2idx).to_numpy()
