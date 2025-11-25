@@ -234,7 +234,7 @@ class XGBMusicPredictor:
             plot_path = os.path.join(self.image_dir, "training_metrics.png")
             plt.savefig(plot_path, dpi=300, bbox_inches="tight")
             logging.info(f"Metrics plot saved to: {plot_path}")
-        plt.show()
+        # plt.show()
 
     def plot_roc_curve(self, y_true: np.ndarray, y_pred_proba: np.ndarray, save_plot: bool = True) -> float:
         fpr, tpr, _ = roc_curve(y_true, y_pred_proba)
@@ -253,7 +253,7 @@ class XGBMusicPredictor:
             plot_path = os.path.join(self.image_dir, "roc_curve.png")
             plt.savefig(plot_path, dpi=300, bbox_inches="tight")
             logging.info(f"ROC curve plot saved to: {plot_path}")
-        plt.show()
+        # plt.show()
         return roc_auc
 
     def _save_model(self, best: bool = False):

@@ -10,8 +10,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.metrics import roc_auc_score, roc_curve, precision_score, recall_score, f1_score, auc, log_loss
-from lightgbm import Dataset, train as lgb_train, record_evaluation
-import lightgbm as lgb
+from lightgbm import Dataset, train, record_evaluation, early_stopping, log_evaluation
 from tqdm import tqdm
 
 warnings.filterwarnings('ignore')
@@ -35,6 +34,7 @@ class LightGBMTrainer:
             'f1': []
         }
         self.booster_history = []
+        self.pbar = None
 
     def load_data(self, train_df, test_df):
         self.train_df = train_df
@@ -50,9 +50,6 @@ class LightGBMTrainer:
         with open(os.path.join(self.model_path, "training_configs.json"), "w") as f:
             f.write(json.dumps(params_record, indent=2))
 
-    ##################################################################
-    #                   ⭐ tqdm + step-by-step training
-    ##################################################################
     def train(self, params=None, num_boost_round=1000, early_stopping_rounds=100):
         if params is None:
             params = {
@@ -79,93 +76,78 @@ class LightGBMTrainer:
         logging.info(f"training_configs saving path: {os.path.join(self.model_path, 'training_configs.json')}")
         self.params_config_save(params, num_boost_round, early_stopping_rounds)
 
-        train_data = lgb.Dataset(
-            self.train_df[self.features],
-            label=self.train_df[self.target_col],
-            free_raw_data=False
-        )
-        valid_data = lgb.Dataset(
-            self.test_df[self.features],
-            label=self.test_df[self.target_col],
-            free_raw_data=False
-        )
+        train_data = Dataset(self.train_df[self.features], label=self.train_df[self.target_col], free_raw_data=False)
+        valid_data = Dataset(self.test_df[self.features], label=self.test_df[self.target_col], free_raw_data=False)
 
         self.booster_history = []
         self.evals_result = {}
 
-        # -------------------- callback for recording --------------------
-        def record_metrics(model, iteration):
-            y_true = self.test_df[self.target_col].values
-            y_prob = model.predict(self.test_df[self.features])
-            y_pred = (y_prob >= 0.5).astype(int)
+        self.pbar = tqdm(total=num_boost_round, desc="Training LightGBM", unit="iter",
+                         bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]')
 
-            precision = precision_score(y_true, y_pred, zero_division=0)
-            recall = recall_score(y_true, y_pred, zero_division=0)
-            f1 = f1_score(y_true, y_pred, zero_division=0)
+        # custom callback func
+        def record_booster_and_metrics(env):
+            # 更新进度条
+            if hasattr(self, 'pbar') and self.pbar is not None:
+                self.pbar.n = env.iteration
+                self.pbar.refresh()
 
-            self.history['precision'].append(precision)
-            self.history['recall'].append(recall)
-            self.history['f1'].append(f1)
-
-            if iteration % 100 == 0 or iteration == num_boost_round - 1:
+            if env.iteration % 100 == 0 or env.iteration == env.end_iteration - 1:
                 try:
-                    self.booster_history.append((iteration, copy.deepcopy(model)))
-                except Exception:
-                    pass
+                    model_copy = copy.deepcopy(env.model)
+                    self.booster_history.append((env.iteration, model_copy))
 
-        # -------------------- manual incremental training --------------------
-        model = None
-        best_iteration = None
-        best_score = -1
-        not_improved = 0
+                    y_true = self.test_df[self.target_col].values
+                    y_prob = model_copy.predict(self.test_df[self.features])
+                    y_pred = (y_prob >= 0.5).astype(int)
 
-        pbar = tqdm(range(num_boost_round), desc="Training", ncols=120)
+                    precision = precision_score(y_true, y_pred, zero_division=0)
+                    recall = recall_score(y_true, y_pred, zero_division=0)
+                    f1 = f1_score(y_true, y_pred, zero_division=0)
 
-        for i in pbar:
-            model = lgb_train(
+                    self.history['precision'].append(precision)
+                    self.history['recall'].append(recall)
+                    self.history['f1'].append(f1)
+
+                    # 更新进度条描述
+                    if hasattr(self, 'pbar') and self.pbar is not None:
+                        self.pbar.set_postfix({
+                            'precision': f'{precision:.4f}',
+                            'recall': f'{recall:.4f}',
+                            'f1': f'{f1:.4f}'
+                        })
+
+                    logging.debug(
+                        f"Iteration {env.iteration}: Precision={precision:.4f}, Recall={recall:.4f}, F1={f1:.4f}")
+
+                except Exception as e:
+                    logging.warning(f"{env.iteration} model training error: {e}")
+
+        try:
+            self.model = train(
                 params,
                 train_data,
-                num_boost_round=1,                  # 每次只训练一轮
+                num_boost_round=num_boost_round,
                 valid_sets=[train_data, valid_data],
                 valid_names=["train", "valid"],
-                init_model=model,                   # 接上一次训练
-                keep_training_booster=True,         # 允许继续训练
-                callbacks=[record_evaluation(self.evals_result)]
+                callbacks=[
+                    early_stopping(stopping_rounds=early_stopping_rounds),
+                    log_evaluation(period=100),
+                    record_evaluation(self.evals_result),
+                    record_booster_and_metrics
+                ]
             )
+        finally:
+            # 确保进度条被正确关闭
+            if hasattr(self, 'pbar') and self.pbar is not None:
+                self.pbar.close()
 
-            # 记录分类指标（precision/recall/f1）
-            record_metrics(model, i)
-
-            # Early stopping 手工实现
-            current_score = self.evals_result["valid"]["auc"][-1]
-            if current_score > best_score:
-                best_score = current_score
-                best_iteration = i
-                not_improved = 0
-            else:
-                not_improved += 1
-
-            pbar.set_postfix({
-                "AUC": f"{current_score:.4f}",
-                "Best": f"{best_score:.4f}",
-                "Patience": f"{not_improved}/{early_stopping_rounds}"
-            })
-
-            if not_improved >= early_stopping_rounds:
-                logging.info(f"Early stopped at iteration {i}. Best iteration = {best_iteration}")
-                break
-
-        self.model = model
-
-        # -------------------- save model --------------------
         model_file = os.path.join(self.model_path, "lightgbm_model.pkl")
         joblib.dump(self.model, model_file)
         logging.info(f"Model saved to {model_file}")
 
         self._record_training_history()
         self.plot_metrics()
-
-    ##################################################################
 
     def _record_training_history(self):
         temp_classification = {
@@ -176,11 +158,13 @@ class LightGBMTrainer:
 
         self.history = {key: [] for key in self.history}
 
+        # record train and valid loss
         if "train" in self.evals_result and "binary_logloss" in self.evals_result["train"]:
             self.history['train_loss'] = self.evals_result["train"]["binary_logloss"]
         if "valid" in self.evals_result and "binary_logloss" in self.evals_result["valid"]:
             self.history['test_loss'] = self.evals_result["valid"]["binary_logloss"]
 
+        # record AUC
         if "train" in self.evals_result and "auc" in self.evals_result["train"]:
             self.history['train_auc'] = self.evals_result["train"]["auc"]
         if "valid" in self.evals_result and "auc" in self.evals_result["valid"]:
@@ -218,6 +202,7 @@ class LightGBMTrainer:
         self.plot_roc_curve(y_true, y_prob)
 
     def plot_metrics(self, save_plot: bool = True) -> None:
+        """Plot training metrics including loss, AUC, precision, recall, and F1."""
         has_loss_data = bool(self.history['train_loss'] and self.history['test_loss'])
         has_auc_data = bool(self.history['train_auc'] and self.history['test_auc'])
         has_classification_data = bool(self.history['precision'])
@@ -246,6 +231,7 @@ class LightGBMTrainer:
 
         fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
 
+        # Plot loss
         if has_loss_data and len(self.history['train_loss']) >= min_length:
             ax1.plot(epochs, self.history['train_loss'][:min_length], label='Train Loss', linewidth=2)
             ax1.plot(epochs, self.history['test_loss'][:min_length], label='Test Loss', linewidth=2)
@@ -254,7 +240,11 @@ class LightGBMTrainer:
             ax1.set_ylabel('Log Loss')
             ax1.legend()
             ax1.grid(True, alpha=0.3)
+        else:
+            ax1.text(0.5, 0.5, 'No Loss Data', ha='center', va='center', transform=ax1.transAxes)
+            ax1.set_title('Loss (No Data)')
 
+        # Plot AUC
         if has_auc_data and len(self.history['train_auc']) >= min_length:
             ax2.plot(epochs, self.history['train_auc'][:min_length], label='Train AUC', linewidth=2)
             ax2.plot(epochs, self.history['test_auc'][:min_length], label='Test AUC', linewidth=2)
@@ -263,7 +253,11 @@ class LightGBMTrainer:
             ax2.set_ylabel('AUC')
             ax2.legend()
             ax2.grid(True, alpha=0.3)
+        else:
+            ax2.text(0.5, 0.5, 'No AUC Data', ha='center', va='center', transform=ax2.transAxes)
+            ax2.set_title('AUC (No Data)')
 
+        # Plot precision, recall, F1
         if has_classification_data and len(self.history['precision']) >= min_length:
             classification_epochs = range(1, len(self.history['precision'][:min_length]) + 1)
             ax3.plot(classification_epochs, self.history['precision'][:min_length], label='Precision', linewidth=2)
@@ -274,7 +268,11 @@ class LightGBMTrainer:
             ax3.set_ylabel('Score')
             ax3.legend()
             ax3.grid(True, alpha=0.3)
+        else:
+            ax3.text(0.5, 0.5, 'No Classification Metrics Data', ha='center', va='center', transform=ax3.transAxes)
+            ax3.set_title('Classification Metrics (No Data)')
 
+        # Plot all metrics together for comparison
         if has_auc_data and has_classification_data:
             min_len = min(len(self.history['test_auc']), len(self.history['precision']))
             comparison_epochs = range(1, min_len + 1)
@@ -288,6 +286,9 @@ class LightGBMTrainer:
             ax4.set_ylabel('Score')
             ax4.legend()
             ax4.grid(True, alpha=0.3)
+        else:
+            ax4.text(0.5, 0.5, 'Insufficient Data for Comparison', ha='center', va='center', transform=ax4.transAxes)
+            ax4.set_title('All Metrics (Insufficient Data)')
 
         plt.tight_layout()
 
@@ -296,7 +297,20 @@ class LightGBMTrainer:
             plt.savefig(plot_path, dpi=300, bbox_inches='tight')
             logging.info("Metrics plot saved to: %s", plot_path)
 
+        # plt.show()
+
     def plot_roc_curve(self, y_true: np.ndarray, y_pred_proba: np.ndarray, save_plot: bool = True) -> float:
+        """
+        Plot ROC curve and calculate AUC.
+
+        Args:
+            y_true: True labels
+            y_pred_proba: Predicted probabilities
+            save_plot: Whether to save the plot
+
+        Returns:
+            AUC score
+        """
         fpr, tpr, _ = roc_curve(y_true, y_pred_proba)
         roc_auc = auc(fpr, tpr)
 
@@ -314,12 +328,13 @@ class LightGBMTrainer:
             plt.savefig(plot_path, dpi=300, bbox_inches='tight')
             logging.info("ROC curve plot saved to: %s", plot_path)
 
+        # plt.show()
         return roc_auc
 
+    def tune(self):
+        logging.info("Hyperparameter tuning placeholder.")
 
-##################################################################
-#                        argparse + params
-##################################################################
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="LightGBM binary classification training"
@@ -345,7 +360,7 @@ def parse_args():
 
 
 def build_lgb_params(args):
-    return {
+    params = {
         "objective": "binary",
         "boosting": "gbdt",
         "metric": ["auc", "binary_logloss"],
@@ -363,11 +378,9 @@ def build_lgb_params(args):
         "max_bin": args.max_bin,
         "verbosity": args.verbosity,
     }
+    return params
 
 
-##################################################################
-#                           main
-##################################################################
 if __name__ == "__main__":
     logging.basicConfig(
         level=logging.INFO,
@@ -376,10 +389,18 @@ if __name__ == "__main__":
     )
 
     args = parse_args()
+
     params = build_lgb_params(args)
 
-    train_df = pd.read_csv("data/processed_data/train_processed_data.csv")
-    test_df = pd.read_csv("data/processed_data/test_processed_data.csv")
+    # 使用tqdm显示数据加载进度
+    with tqdm(total=2, desc="Loading data", unit="file") as pbar:
+        train_df = pd.read_csv("data/processed_data/train_processed_data.csv")
+        pbar.update(1)
+        pbar.set_description("Loading train data")
+
+        test_df = pd.read_csv("data/processed_data/test_processed_data.csv")
+        pbar.update(1)
+        pbar.set_description("Loading test data")
 
     trainer = LightGBMTrainer(
         model_path=args.model_path,
