@@ -1,7 +1,10 @@
 {
   "objective": "binary",
   "boosting": "gbdt",
-  "metric": "auc",
+  "metric": [
+    "auc",
+    "binary_logloss"
+  ],
   "learning_rate": 0.05,
   "num_leaves": 256,
   "min_data_in_leaf": 1000,

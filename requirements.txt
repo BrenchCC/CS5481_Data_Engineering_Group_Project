@@ -15,3 +15,4 @@ scipy~=1.15.3
 scikit-surprise
 joblib~=1.5.2
 lightfm==1.17
+xgboost==3.1.2

@@ -5,12 +5,17 @@ from typing import Optional, Tuple, Dict, Any
 import pandas as pd
 import numpy as np
 import scipy.sparse as sp
-from sklearn.metrics import roc_auc_score, precision_recall_fscore_support
+from sklearn.metrics import roc_auc_score, precision_recall_fscore_support, roc_curve, auc
 import matplotlib.pyplot as plt
 import torch
 from torch import nn
 from torch.utils.data import Dataset, DataLoader
 
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
 logger = logging.getLogger(__name__)
 
@@ -119,8 +124,16 @@ class CollaborativeFilteringMF:
         self.optimizer: Optional[torch.optim.Optimizer] = None
         self.criterion = nn.BCEWithLogitsLoss()
 
-        # history for plotting
-        self.history = {"precision": [], "recall": [], "f1": [], "auc": []}
+        # 修改history结构以支持新的绘图方法
+        self.history = {
+            'train_loss': [], 
+            'test_loss': [], 
+            'train_auc': [], 
+            'test_auc': [], 
+            'precision': [], 
+            'recall': [], 
+            'f1': []
+        }
 
     # Data loading & mapping
     def _prepare_data(self):
@@ -189,24 +202,31 @@ class CollaborativeFilteringMF:
                 running_loss += loss.item()
                 n_batches += 1
 
-            avg_loss = running_loss / max(1, n_batches)
-            logger.info(f"Epoch {epoch}/{self.epochs} - train_loss: {avg_loss:.6f}")
-
-            # evaluation on test set
-            precision, recall, f1, auc = self.evaluate(test_loader)
+            avg_train_loss = running_loss / max(1, n_batches)
+            
+            # 计算训练集和测试集的完整评估指标
+            train_loss, train_auc, _, _, _ = self.evaluate(train_loader)
+            test_loss, test_auc, precision, recall, f1 = self.evaluate(test_loader)
+            
+            # 记录所有指标
+            self.history["train_loss"].append(avg_train_loss)
+            self.history["test_loss"].append(test_loss)
+            self.history["train_auc"].append(train_auc)
+            self.history["test_auc"].append(test_auc)
             self.history["precision"].append(precision)
             self.history["recall"].append(recall)
             self.history["f1"].append(f1)
-            self.history["auc"].append(auc)
 
-            logger.info(f"Epoch {epoch} metrics - precision: {precision:.6f}, recall: {recall:.6f}, f1: {f1:.6f}, auc: {auc:.6f}")
+            logger.info(f"Epoch {epoch}/{self.epochs} - train_loss: {avg_train_loss:.6f}, test_loss: {test_loss:.6f}")
+            logger.info(f"Epoch {epoch} metrics - train_auc: {train_auc:.6f}, test_auc: {test_auc:.6f}, "
+                       f"precision: {precision:.6f}, recall: {recall:.6f}, f1: {f1:.6f}")
 
             # save checkpoint for this epoch
             ckpt_path = os.path.join(self.model_save_dir, f"mf_epoch{epoch}.pt")
             self.save_model(ckpt_path)
             logger.info(f"Saved checkpoint: {ckpt_path}")
 
-        # asave final model and user-item similarity matrix
+        # save final model and user-item similarity matrix
         final_ckpt = os.path.join(self.model_save_dir, "mf_final.pt")
         self.save_model(final_ckpt)
         logger.info(f"Saved final model: {final_ckpt}")
@@ -216,19 +236,29 @@ class CollaborativeFilteringMF:
         self.save_user_item_matrix(topk=self.topk_sim)
         logger.info("All done.")
 
-    # Evaluation step
-    def evaluate(self, loader: DataLoader, threshold: float = 0.5) -> Tuple[float, float, float, float]:
+    # Evaluation step - 修改为返回更多指标
+    def evaluate(self, loader: DataLoader, threshold: float = 0.5) -> Tuple[float, float, float, float, float]:
         self.model.eval()
+        total_loss = 0.0
+        n_batches = 0
         preds = []
         labels = []
         with torch.inference_mode():
             for u, i, y in loader:
                 u = u.to(self.device)
                 i = i.to(self.device)
+                y = y.to(self.device)
+                
                 logits = self.model(u, i)
+                loss = self.criterion(logits, y)
+                total_loss += loss.item()
+                n_batches += 1
+                
                 prob = torch.sigmoid(logits).detach().cpu().numpy()
                 preds.append(prob)
-                labels.append(y.numpy())
+                labels.append(y.cpu().numpy())
+                
+        avg_loss = total_loss / max(1, n_batches)
         preds = np.concatenate(preds, axis=0)
         labels = np.concatenate(labels, axis=0).astype(int)
 
@@ -236,11 +266,11 @@ class CollaborativeFilteringMF:
         pred_bin = (preds >= threshold).astype(int)
         precision, recall, f1, _ = precision_recall_fscore_support(labels, pred_bin, average="binary", zero_division=0)
         try:
-            auc = float(roc_auc_score(labels, preds))
+            auc_score = float(roc_auc_score(labels, preds))
         except Exception:
-            auc = 0.0
+            auc_score = 0.0
 
-        return precision, recall, f1, auc
+        return avg_loss, auc_score, precision, recall, f1
 
     # Saving / Loading model func
     def save_model(self, path: str):
@@ -328,23 +358,97 @@ class CollaborativeFilteringMF:
         np.save(os.path.join(self.matrix_save_dir, "item_factors.npy"), item_emb)
         logger.info("Saved user_factors.npy and item_factors.npy")
 
+    # 新的绘图方法
+    def plot_metrics(self, save_plot: bool = True) -> None:
+        """Plot training metrics including loss, AUC, precision, recall, and F1."""
+        if not self.history['train_loss']:
+            logging.warning("No training history available. Train the model first.")
+            return
 
-    # Plot metrics
-    def plot_metrics(self):
-        epochs = np.arange(1, len(self.history["precision"]) + 1)
-        plt.figure()
-        plt.plot(epochs, self.history["precision"], label="Precision")
-        plt.plot(epochs, self.history["recall"], label="Recall")
-        plt.plot(epochs, self.history["f1"], label="F1")
-        plt.plot(epochs, self.history["auc"], label="AUC")
-        plt.xlabel("Epoch")
-        plt.ylabel("Score")
-        plt.title("Metrics per Epoch")
+        num_epochs = len(self.history['train_loss'])
+        epochs = range(1, num_epochs + 1)
+
+        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
+
+        # Plot loss
+        ax1.plot(epochs, self.history['train_loss'], label='Train Loss', linewidth=2)
+        ax1.plot(epochs, self.history['test_loss'], label='Test Loss', linewidth=2)
+        ax1.set_title('Training and Test Loss')
+        ax1.set_xlabel('Epoch')
+        ax1.set_ylabel('Log Loss')
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+
+        # Plot AUC
+        ax2.plot(epochs, self.history['train_auc'], label='Train AUC', linewidth=2)
+        ax2.plot(epochs, self.history['test_auc'], label='Test AUC', linewidth=2)
+        ax2.set_title('Training and Test AUC')
+        ax2.set_xlabel('Epoch')
+        ax2.set_ylabel('AUC')
+        ax2.legend()
+        ax2.grid(True, alpha=0.3)
+
+        # Plot precision, recall, F1
+        ax3.plot(epochs, self.history['precision'], label='Precision', linewidth=2)
+        ax3.plot(epochs, self.history['recall'], label='Recall', linewidth=2)
+        ax3.plot(epochs, self.history['f1'], label='F1-Score', linewidth=2)
+        ax3.set_title('Precision, Recall, and F1-Score')
+        ax3.set_xlabel('Epoch')
+        ax3.set_ylabel('Score')
+        ax3.legend()
+        ax3.grid(True, alpha=0.3)
+
+        # Plot all metrics together for comparison
+        ax4.plot(epochs, self.history['test_auc'], label='AUC', linewidth=2)
+        ax4.plot(epochs, self.history['precision'], label='Precision', linewidth=2)
+        ax4.plot(epochs, self.history['recall'], label='Recall', linewidth=2)
+        ax4.plot(epochs, self.history['f1'], label='F1-Score', linewidth=2)
+        ax4.set_title('All Test Metrics')
+        ax4.set_xlabel('Epoch')
+        ax4.set_ylabel('Score')
+        ax4.legend()
+        ax4.grid(True, alpha=0.3)
+
+        plt.tight_layout()
+
+        if save_plot:
+            plot_path = os.path.join(self.image_save_dir, "training_metrics.png")
+            plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+            logging.info("Metrics plot saved to: %s", plot_path)
+
+        plt.show()
+
+    def plot_roc_curve(self, y_true: np.ndarray, y_pred_proba: np.ndarray, save_plot: bool = True) -> float:
+        """
+        Plot ROC curve and calculate AUC.
+
+        Args:
+            y_true: True labels
+            y_pred_proba: Predicted probabilities
+            save_plot: Whether to save the plot
+
+        Returns:
+            AUC score
+        """
+        fpr, tpr, _ = roc_curve(y_true, y_pred_proba)
+        roc_auc = auc(fpr, tpr)
+
+        plt.figure(figsize=(7, 6))
+        plt.plot(fpr, tpr, label=f"AUC = {roc_auc:.4f}", linewidth=2)
+        plt.plot([0, 1], [0, 1], linestyle='--', color='gray')
+        plt.xlabel("False Positive Rate")
+        plt.ylabel("True Positive Rate")
+        plt.title("ROC Curve")
         plt.legend()
-        file_path = os.path.join(self.image_save_dir, "metrics_epoch.png")
-        plt.savefig(file_path, bbox_inches="tight")
-        plt.close()
-        logger.info(f"Saved metric plot to {file_path}")
+        plt.grid(True, alpha=0.3)
+
+        if save_plot:
+            plot_path = os.path.join(self.image_save_dir, "roc_curve.png")
+            plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+            logging.info("ROC curve plot saved to: %s", plot_path)
+
+        plt.show()
+        return roc_auc
 
     # Utility: predict for given user-item pairs in batches
     def predict_pairs(self, user_array: np.ndarray, item_array: np.ndarray, batch_size: int = 65536):
@@ -415,30 +519,19 @@ if __name__ == "__main__":
     
     cf.load_model("model_ckpts/collaborative_filter/mf_final.pt")
     
-    train_loader, test_loader, n_users, n_items = self._prepare_data()
-    # evaluate on test set
-    precision, recall, f1, auc = cf.evaluate(test_loader, threshold = 0.75)
-    print(f"Test metrics - precision: {precision:.6f}, recall: {recall:.6f}, f1: {f1:.6f}, auc: {auc:.6f}")
+    # 获取测试数据
+    _, test_loader, _, _ = cf._prepare_data()
     
+    # 获取测试集的预测概率和真实标签
+    test_loss, test_auc, precision, recall, f1 = cf.evaluate(test_loader)
+    print(f"Test metrics - precision: {precision:.6f}, recall: {recall:.6f}, f1: {f1:.6f}, auc: {test_auc:.6f}")
+    
+    # 绘制ROC曲线
     test_df = pd.read_csv("data/processed_data/test_processed_data_mf.csv")
     u = test_df["msno"].map(cf.user2idx).to_numpy()
     i = test_df["song_id"].map(cf.item2idx).to_numpy()
     y = test_df["target"].to_numpy()
     
     pred = cf.predict_pairs(u, i)
-
-    
-    fpr, tpr, _ = roc_curve(y, pred)
-    final_auc = auc(fpr, tpr)
-    
-    plt.figure(figsize=(7, 6))
-    plt.plot(fpr, tpr, label=f"AUC = {final_auc:.4f}")
-    plt.plot([0, 1], [0, 1], linestyle='--')
-    plt.xlabel("False Positive Rate")
-    plt.ylabel("True Positive Rate")
-    plt.title("Final Test ROC Curve")
-    plt.legend()
-    plt.grid(True)
-    plt.savefig("images/models/collaborative_filter/final_auc_curve.png", dpi = 300)
-    plt.show()
+    cf.plot_roc_curve(y, pred)
     """

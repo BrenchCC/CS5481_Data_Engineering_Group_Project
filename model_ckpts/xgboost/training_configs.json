@@ -1,0 +1,18 @@
+{
+    "xgb_params": {
+        "objective": "binary:logistic",
+        "eval_metric": "auc",
+        "learning_rate": 0.1,
+        "max_depth": 8,
+        "subsample": 0.8,
+        "colsample_bytree": 0.8,
+        "tree_method": "auto",
+        "random_state": 42,
+        "n_jobs": -1
+    },
+    "threshold": 0.5,
+    "n_estimators": 200,
+    "early_stopping_rounds": 20,
+    "random_state": 42,
+    "log_interval": 50
+}
