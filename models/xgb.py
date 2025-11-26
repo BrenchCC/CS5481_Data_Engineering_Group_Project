@@ -151,7 +151,7 @@ class XGBMusicPredictor:
         logging.info(
             f"Training completed. Best iteration: {self.best_iteration}, Best Val AUC: {self.best_val_auc:.4f}"
         )
-        self._save_model()
+        # self._save_model()
         self._save_training_configs()
 
     def predict(self, df: pd.DataFrame):
@@ -263,7 +263,7 @@ class XGBMusicPredictor:
         logging.info(f"{'Best' if best else 'Current'} model saved to {path}")
 
     def load_model(self, model_file: str = None):
-        model_file = model_file or os.path.join(self.model_path, "xgb_model.pkl")
+        model_file = model_file or os.path.join(self.model_path, "best_model.pkl")
         self.model = joblib.load(model_file)
         logging.info(f"Model loaded from {model_file}")
 
