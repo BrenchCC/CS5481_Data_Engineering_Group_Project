@@ -37,8 +37,7 @@ class LoggingCallback(xgb.callback.TrainingCallback):
             if current_val_auc > self.predictor.best_val_auc:
                 self.predictor.best_val_auc = current_val_auc
                 self.predictor.best_iteration = epoch
-                # 修复：直接保存传入的model，而不是predictor.model
-                self.predictor._save_model(model=model, best=True)
+                self.predictor._save_model(best=True)
 
             y_train_pred = (y_train_pred_prob >= self.predictor.threshold).astype(int)
             y_val_pred = (y_val_pred_prob >= self.predictor.threshold).astype(int)
@@ -116,8 +115,6 @@ class XGBMusicPredictor:
 
         self.best_val_auc = 0.0
         self.best_iteration = 0
-        # 新增：保存最佳模型对象
-        self.best_model = None
 
     def train(self, train_df: pd.DataFrame, val_df: pd.DataFrame):
         logging.info("Preparing data for XGBoost training...")
@@ -151,30 +148,16 @@ class XGBMusicPredictor:
             callbacks=[callback]
         )
 
-        # 修复：训练完成后确保保存最佳模型
-        if self.best_model is None:
-            # 如果没有找到最佳模型，使用最终模型
-            self.best_model = self.model
-            self._save_model(model=self.model, best=True)
-
-        # 设置当前模型为最佳模型
-        self.model = self.best_model
-
         logging.info(
             f"Training completed. Best iteration: {self.best_iteration}, Best Val AUC: {self.best_val_auc:.4f}"
         )
-        # 保存最终模型
-        self._save_model(model=self.model, best=False)
+        self._save_model()
         self._save_training_configs()
 
     def predict(self, df: pd.DataFrame):
         X = df.drop(columns=['target'], errors='ignore')
         dmatrix = xgb.DMatrix(X)
-        # 修复：使用保存的最佳模型进行预测
-        if hasattr(self.model, 'best_iteration') and self.model.best_iteration is not None:
-            y_pred_prob = self.model.predict(dmatrix, iteration_range=(0, self.model.best_iteration + 1))
-        else:
-            y_pred_prob = self.model.predict(dmatrix)
+        y_pred_prob = self.model.predict(dmatrix, iteration_range=(0, self.model.best_iteration + 1))
         y_pred = (y_pred_prob >= self.threshold).astype(int)
         return y_pred, y_pred_prob
 
@@ -199,19 +182,6 @@ class XGBMusicPredictor:
         self.history["precision"].append(prec)
         self.history["recall"].append(rec)
         self.history["f1"].append(f1)
-
-    # 修复：修改保存模型方法，支持传入模型参数
-    def _save_model(self, model=None, best: bool = False):
-        if model is None:
-            model = self.model
-        filename = "best_model.pkl" if best else "xgb_model.pkl"
-        path = os.path.join(self.model_path, filename)
-        joblib.dump(model, path)
-        logging.info(f"{'Best' if best else 'Current'} model saved to {path}")
-
-        # 如果是最佳模型，同时保存模型对象
-        if best:
-            self.best_model = model
 
     # plotting
     def plot_metrics(self, save_plot: bool = True):
@@ -264,8 +234,7 @@ class XGBMusicPredictor:
             plot_path = os.path.join(self.image_dir, "training_metrics.png")
             plt.savefig(plot_path, dpi=300, bbox_inches="tight")
             logging.info(f"Metrics plot saved to: {plot_path}")
-        else:
-            plt.show()
+        # plt.show()
 
     def plot_roc_curve(self, y_true: np.ndarray, y_pred_proba: np.ndarray, save_plot: bool = True) -> float:
         fpr, tpr, _ = roc_curve(y_true, y_pred_proba)
@@ -284,12 +253,17 @@ class XGBMusicPredictor:
             plot_path = os.path.join(self.image_dir, "roc_curve.png")
             plt.savefig(plot_path, dpi=300, bbox_inches="tight")
             logging.info(f"ROC curve plot saved to: {plot_path}")
-        else:
-            plt.show()
+        # plt.show()
         return roc_auc
 
+    def _save_model(self, best: bool = False):
+        filename = "best_model.pkl" if best else "xgb_model.pkl"
+        path = os.path.join(self.model_path, filename)
+        joblib.dump(self.model, path)
+        logging.info(f"{'Best' if best else 'Current'} model saved to {path}")
+
     def load_model(self, model_file: str = None):
-        model_file = model_file or os.path.join(self.model_path, "best_model.pkl")
+        model_file = model_file or os.path.join(self.model_path, "xgb_model.pkl")
         self.model = joblib.load(model_file)
         logging.info(f"Model loaded from {model_file}")
 

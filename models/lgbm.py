@@ -17,7 +17,7 @@ warnings.filterwarnings('ignore')
 
 
 class LightGBMTrainer:
-    def __init__(self, model_path="model_ckpts/lightgbm", image_path="images/models/lightgbm", save_plot = True):
+    def __init__(self, model_path="model_ckpts/lightgbm", image_path="images/models/lightgbm"):
         self.model_path = model_path
         self.image_path = image_path
         os.makedirs(self.model_path, exist_ok=True)
@@ -35,7 +35,6 @@ class LightGBMTrainer:
         }
         self.booster_history = []
         self.pbar = None
-        self.save_plot = save_plot
 
     def load_data(self, train_df, test_df):
         self.train_df = train_df
@@ -148,7 +147,7 @@ class LightGBMTrainer:
         logging.info(f"Model saved to {model_file}")
 
         self._record_training_history()
-        self.plot_metrics(save_plot = self.save_plot)
+        self.plot_metrics()
 
     def _record_training_history(self):
         temp_classification = {
@@ -179,7 +178,7 @@ class LightGBMTrainer:
         logging.info(f"Loading model from {model_file}")
         self.model = joblib.load(model_file)
 
-    def evaluate(self, save_plot = True):
+    def evaluate(self):
         if self.model is None:
             raise ValueError("Model is not loaded or trained.")
 
@@ -200,7 +199,7 @@ class LightGBMTrainer:
         test_loss = log_loss(y_true, y_prob)
         logging.info(f"Test Log Loss: {test_loss}")
 
-        self.plot_roc_curve(y_true, y_prob, save_plot = save_plot)
+        self.plot_roc_curve(y_true, y_prob)
 
     def plot_metrics(self, save_plot: bool = True) -> None:
         """Plot training metrics including loss, AUC, precision, recall, and F1."""
@@ -297,8 +296,8 @@ class LightGBMTrainer:
             plot_path = os.path.join(self.image_path, "training_metrics.png")
             plt.savefig(plot_path, dpi=300, bbox_inches='tight')
             logging.info("Metrics plot saved to: %s", plot_path)
-        else:
-            plt.show()
+
+        # plt.show()
 
     def plot_roc_curve(self, y_true: np.ndarray, y_pred_proba: np.ndarray, save_plot: bool = True) -> float:
         """
@@ -328,8 +327,8 @@ class LightGBMTrainer:
             plot_path = os.path.join(self.image_path, "roc_curve.png")
             plt.savefig(plot_path, dpi=300, bbox_inches='tight')
             logging.info("ROC curve plot saved to: %s", plot_path)
-        else:
-            plt.show()
+
+        # plt.show()
         return roc_auc
 
     def tune(self):
