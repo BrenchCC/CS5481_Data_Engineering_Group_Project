@@ -273,7 +273,7 @@ class LightFMRecommender:
             plt.savefig(plot_path, dpi=300, bbox_inches='tight')
             logging.info("Metrics plot saved to: %s", plot_path)
 
-        plt.show()
+        # plt.show()
 
     def plot_roc_curve(self, y_true: np.ndarray, y_pred_proba: np.ndarray, save_plot: bool = True) -> float:
         """
@@ -304,7 +304,7 @@ class LightFMRecommender:
             plt.savefig(plot_path, dpi=300, bbox_inches='tight')
             logging.info("ROC curve plot saved to: %s", plot_path)
 
-        plt.show()
+        # plt.show()
         return roc_auc
 
     def save_model(self) -> None:
@@ -448,9 +448,14 @@ class LightFMRecommender:
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model_path', type = str, default = "model_ckpts/lightfm")
-    parser.add_argument('--image_path', type = str, default = "images/models/lightfm")
-    parser.add_argument('--num_epochs', type = int, default = 10)
+    parser.add_argument('--model_path', type = str, default = "model_ckpts/lightfm_nc64_lr0dot05")
+    parser.add_argument('--image_path', type = str, default = "images/models/lightfm_nc64_lr0dot05")
+    parser.add_argument('--loss_func', type=str, default="logistic", choices=["logistic", "bpr"])
+    parser.add_argument('--num_epochs', type = int, default = 20)
+    parser.add_argument('--learning_rate', type=float, default = 0.1)
+    parser.add_argument('--no_components', type=int, default=30)
+
+    return parser.parse_args()
 
 if __name__ == "__main__":
     # Set up logging
@@ -468,19 +473,22 @@ if __name__ == "__main__":
         logging.info("Data loaded successfully. Train shape: %s, Test shape: %s",
                      train_df.shape, test_df.shape)
 
+        args = parse_args()
+
+        logging.info("Starting hyperparameter tuning...")
         # Initialize recommender
         recommender = LightFMRecommender(
-            model_dir="model_ckpts/lightfm",
-            image_dir="images/models/lightfm",
+            model_dir = args.model_path,
+            image_dir = args.image_path,
             threshold=0.5,
-            loss='logistic',
-            no_components=30,
-            learning_rate=0.05,
-            random_state=42
+            loss = args.loss_func,
+            no_components = args.no_components,
+            learning_rate = args.learning_rate,
+            random_state = 42
         )
 
         # Train model
-        history = recommender.train(train_df, test_df, num_epochs=10, save_model=True)
+        history = recommender.train(train_df, test_df, num_epochs = args.num_epochs, save_model=True)
 
         # Plot metrics
         recommender.plot_metrics(save_plot=True)

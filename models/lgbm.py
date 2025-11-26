@@ -339,13 +339,13 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description="LightGBM binary classification training"
     )
-    parser.add_argument("--model_path", type=str, default="model_ckpts/lightgbm_3000rounds_256leaves")
-    parser.add_argument("--image_path", type=str, default="images/models/lightgbm_3000rounds_256leaves")
-    parser.add_argument("--learning_rate", type=float, default=0.05)
-    parser.add_argument("--num_leaves", type=int, default=256)
+    parser.add_argument("--model_path", type=str, default="model_ckpts/lightgbm_2000rounds_128leaves_lr0dot1_fraction0dot9")
+    parser.add_argument("--image_path", type=str, default="images/models/lightgbm_2000rounds_128leaves_lr0dot1_fraction0dot9")
+    parser.add_argument("--learning_rate", type=float, default=0.1)
+    parser.add_argument("--num_leaves", type=int, default=128)
     parser.add_argument("--min_data_in_leaf", type=int, default=1000)
-    parser.add_argument("--feature_fraction", type=float, default=0.8)
-    parser.add_argument("--bagging_fraction", type=float, default=0.8)
+    parser.add_argument("--feature_fraction", type=float, default=0.9)
+    parser.add_argument("--bagging_fraction", type=float, default=0.9)
     parser.add_argument("--bagging_freq", type=int, default=1)
     parser.add_argument("--bagging_seed", type=int, default=42)
     parser.add_argument("--max_depth", type=int, default=-1)
@@ -354,7 +354,7 @@ def parse_args():
     parser.add_argument("--min_split_gain", type=float, default=0.01)
     parser.add_argument("--max_bin", type=int, default=255)
     parser.add_argument("--verbosity", type=int, default=1)
-    parser.add_argument("--num_boost_round", type=int, default=3000)
+    parser.add_argument("--num_boost_round", type=int, default=2000)
     parser.add_argument("--early_stopping_rounds", type=int, default=100)
     return parser.parse_args()
 
