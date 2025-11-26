@@ -290,7 +290,7 @@ class LightFMRecommender:
         fpr, tpr, _ = roc_curve(y_true, y_pred_proba)
         roc_auc = auc(fpr, tpr)
 
-        plt.figure(figsize=(7, 6))
+        plt.figure(figsize=(7, 6), dpi = 300)
         plt.plot(fpr, tpr, label=f"AUC = {roc_auc:.4f}", linewidth=2)
         plt.plot([0, 1], [0, 1], linestyle='--', color='gray')
         plt.xlabel("False Positive Rate")
