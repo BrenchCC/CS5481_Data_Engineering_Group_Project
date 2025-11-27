@@ -2,7 +2,7 @@
 > - KKBOX-Music Recommendation Group Project, including: Data preparation; Data pre-processing and Exploratory data analysis; Multiple model algorithm implementation; Hyper Parameter Optimization with multi metrics evaluation;
 > - See the [Report Overview Feishu Document](https://nwtbnnqpuup.feishu.cn/wiki/Qxouw3EPjiNZhakcgA2cl63rnkf)
 > - See the [Project tutorial](docs/Group_project_tutorial.pdf); [Project tutorial Chinese](docs/group_project_tutorial_cn.md)
-# Project Stucture
+# Project Structure
 ```ascii
 CS5481_Group_Project
 ├── data
