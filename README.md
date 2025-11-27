@@ -53,7 +53,7 @@ pip install -r requirements.txt
 ### 3.2 Model Algorithms Code
 > [Model Algorithms Code](models)
 ```ascii
-├── model
+├── models
 │   ├── __init__.py
 │   ├── collaborative_filter.py
 │   ├── lgbm.py
